@@ -24,6 +24,19 @@ def path_cmp(a, b):
         return 1
 path_cmp_key = cmp_to_key(path_cmp)
 
+#from https://discuss.pytorch.org/t/balanced-sampling-between-classes-with-torchvision-dataloader/2703/3
+def make_weights_for_balanced_classes(images, nclasses):                        
+    count = [0] * nclasses                                                      
+    for item in images:                                                         
+        count[item[1]] += 1                                                     
+    weight_per_class = [0.] * nclasses                                      
+    N = float(sum(count))                                                   
+    for i in range(nclasses):                                                   
+        weight_per_class[i] = N/float(count[i])                                 
+    weight = [0] * len(images)                                              
+    for idx, val in enumerate(images):                                          
+        weight[idx] = weight_per_class[val[1]]                                  
+    return weight
 
 def make_dataset(directory, class_to_idx, class_to_folders, extensions=None, is_valid_file=None):
     instances = []
@@ -47,7 +60,10 @@ def make_dataset(directory, class_to_idx, class_to_folders, extensions=None, is_
                     if is_valid_file(path):
                         item = path, class_index
                         instances.append(item)
-    return instances
+      
+    # For unbalanced dataset we create a weighted sampler                       
+    weights = make_weights_for_balanced_classes(instances, len(class_to_idx.keys()))
+    return instances,weights
 
 
 class MyDatasetFolder(VisionDataset):
@@ -87,7 +103,7 @@ class MyDatasetFolder(VisionDataset):
         super(MyDatasetFolder, self).__init__(root, transform=transform,
                                             target_transform=target_transform)
         classes, class_to_idx,class_to_folders = self._find_classes(self.root)
-        samples = make_dataset(self.root, class_to_idx, class_to_folders, extensions=extensions, is_valid_file=is_valid_file)
+        samples,weights = make_dataset(self.root, class_to_idx, class_to_folders, extensions=extensions, is_valid_file=is_valid_file)
         if len(samples) == 0:
             msg = "Found 0 files in subfolders of: {}\n".format(self.root)
             if extensions is not None:
@@ -100,6 +116,7 @@ class MyDatasetFolder(VisionDataset):
         self.classes = classes
         self.class_to_idx = class_to_idx
         self.samples = samples
+        self.weights = weights
         self.targets = [s[1] for s in samples]
         if to_sort < 0:
             self.samples.sort(key = path_cmp_key,reverse=True)
@@ -114,10 +131,10 @@ class MyDatasetFolder(VisionDataset):
         """
         if self.DETECT_LAY:
             classes = ['not_laying','laying']
-            class_to_folders = {'not_laying':['not_laying'], 'laying':['not_nursing','nursing']}
+            class_to_folders = {'not_laying':['not_laying'], 'laying':['laying_not_nursing','laying_nursing']}
         else:
             classes = ['nursing','not_nursing']
-            class_to_folders = {'not_nursing':['not_nursing','not_laying'], 'nursing':['nursing']}
+            class_to_folders = {'not_nursing':['laying_not_nursing','not_laying'], 'nursing':['laying_nursing']}
         
         folders = [d.name for d in os.scandir(dir) if d.is_dir()]
         #classes.sort()
